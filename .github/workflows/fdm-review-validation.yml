@@ -1,0 +1,44 @@
+name: FDM receiver review validation
+on:
+  push:
+    branches: [validation/fdm-rc-review]
+permissions:
+  contents: read
+jobs:
+  receiver:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    container: ardupilot/ardupilot-dev-base:v0.2.0
+    env:
+      CCACHE_DIR: /github/home/.cache/ccache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/cache@v4
+        with:
+          path: /github/home/.cache/ccache
+          key: fdm-sitl-gcc-${{ github.sha }}
+          restore-keys: fdm-sitl-gcc-
+      - name: Build and exercise the external FDM receiver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          export PATH="/github/home/.local/bin:$PATH"
+          python3 -m pip install --user ./modules/mavlink/pymavlink MAVProxy
+          python3 -m py_compile Tools/autotest/arduplane.py
+          python3 -m flake8 Tools/autotest/arduplane.py
+          ./waf configure --board sitl --debug
+          ./waf plane -j4
+          ./waf --targets tests/test_fdm -j4
+          build/sitl/tests/test_fdm
+          Tools/autotest/autotest.py test.Plane.FDMRCFailsafe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fdm-receiver-test-results
+          path: |
+            /tmp/buildlogs
+            logs
+            build/sitl/bin/arduplane
